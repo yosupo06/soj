@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	log "github.com/Sirupsen/logrus"
+	"io"
 	"os"
 	"os/exec"
 	"time"
@@ -31,7 +32,7 @@ func execCmd(s, fp string) ([]byte, []byte, time.Duration, error) {
 			err = errors.New("RE")
 		}
 		return outBuf.Bytes(), errBuf.Bytes(), cmd.ProcessState.UserTime(), err
-	case <-time.After(time.Duration(td.TimeLimit) * time.Second):
+	case <-time.After(time.Duration(Config.TimeLimit) * time.Second):
 		if err := cmd.Process.Kill(); err != nil {
 			log.Fatal("Failed to kill:", err)
 		}
@@ -41,4 +42,21 @@ func execCmd(s, fp string) ([]byte, []byte, time.Duration, error) {
 	err := <-c
 	//	err := cmd.Run()
 	return outBuf.Bytes(), errBuf.Bytes(), cmd.ProcessState.UserTime(), err
+}
+
+func fileCopy(dst, src string) {
+	s, err := os.Open(src)
+	defer s.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	d, err := os.Create(dst)
+	defer d.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = io.Copy(d, s)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
