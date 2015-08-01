@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	log "github.com/Sirupsen/logrus"
 	"hash/fnv"
 	"io/ioutil"
@@ -19,16 +20,22 @@ import (
 var compileArg = map[string]string{
 	".cpp": "clang++ -std=c++11 -O2 -Wl,-stack_size,0x10000000 {{.Name}}.cpp -o {{.Name}}",
 	".d":   "dmd -O {{.Name}}.d",
+	".cs":  "mcs -r:System.Numerics {{.Name}}.cs",
 }
 
 var testArg = map[string]string{
-	".cpp": "./{{.Name}} --seed={{.Seed}}",
-	".d":   "./{{.Name}} --seed={{.Seed}}",
+	".cpp": "./{{.Name}} --seed={{.Seed}} --hash={{.Hash}}",
+	".d":   "./{{.Name}} --seed={{.Seed}} --hash={{.Hash}}",
 }
 
 var execArg = map[string]string{
 	".cpp": "./{{.Name}}",
 	".d":   "./{{.Name}}",
+	".cs":  "mono {{.Name}}.exe",
+}
+
+var checkerArg = map[string]string{
+	".cpp": "./{{.Name}} {{.Input}} {{.Output}} {{.Answer}}",
 }
 
 var tp = make(map[string]*template.Template)
@@ -54,6 +61,13 @@ func init() {
 			panic(err)
 		}
 		tp["exec"+k] = t
+	}
+	for k, c := range checkerArg {
+		t, err := template.New("checker").Parse(c)
+		if err != nil {
+			panic(err)
+		}
+		tp["checker"+k] = t
 	}
 }
 
@@ -93,6 +107,9 @@ func compile(s string) {
 func makeCase() {
 	log.Info("Start Maker Compile")
 	for _, v := range Config.Tests {
+		if fp.Ext(v.Name) == ".txt" {
+			continue
+		}
 		fileCopy(fp.Join(BufFP, v.Name), fp.Join(MakerFP, v.Name))
 		log.WithField("Name", v.Name).Info("Start Compile")
 		compile(v.Name)
@@ -104,9 +121,13 @@ func makeCase() {
 		log.WithFields(log.Fields{
 			"Name": n, "Number": v.Number}).Info("Make Input")
 		for i := 0; i < v.Number; i++ {
-			cn := uint32(i) + sourcehash[v.Name]
+			if fp.Ext(v.Name) == ".txt" {
+				fileCopy(fp.Join(InFP, caseName(v.Name, i)), fp.Join(MakerFP, n, caseName(v.Name, i)))
+				continue
+			}
 			out, _, _, err := Command("test", v.Name, "",
-				map[string]string{"Seed": strconv.FormatUint(uint64(cn), 10)})
+				map[string]string{"Seed": strconv.Itoa(i),
+					"Hash": strconv.FormatUint(uint64(sourcehash[v.Name]), 10)})
 			if err != nil {
 				log.Error(err)
 			}
@@ -142,6 +163,10 @@ func verify() {
 func makeAnswer() {
 	log.Info("Make Answer")
 	log.WithField("Name", Config.Answer).Info("Compiling ...")
+	if Config.Checker != "" {
+		fileCopy(fp.Join(BufFP, Config.Checker), fp.Join(MakerFP, Config.Checker))
+		compile(Config.Checker)
+	}
 	fileCopy(fp.Join(BufFP, Config.Answer), fp.Join(AnsFP, Config.Answer))
 	compile(Config.Answer)
 	os.MkdirAll(OutFP, 0755)
@@ -149,47 +174,66 @@ func makeAnswer() {
 		log.WithFields(log.Fields{
 			"Name": v.Name, "Number": v.Number}).Debug("Make Answer")
 		for i := 0; i < v.Number; i++ {
-			outB, _, du, err := Command("exec", Config.Answer, fp.Join(InFP, caseName(v.Name, i)), nil)
+			cn := caseName(v.Name, i)
+			outB, _, du, err := Command("exec", Config.Answer, fp.Join(InFP, cn), nil)
 			if err != nil {
 				log.Fatal(err)
 			}
-			err = ioutil.WriteFile(fp.Join(OutFP, caseName(v.Name, i)), outB, 0644)
+			err = ioutil.WriteFile(fp.Join(OutFP, cn), outB, 0644)
 			if err != nil {
 				log.Fatal(err)
 			}
 			log.WithField("Time", int64(du/time.Millisecond)).Debugf("seed = %d", i)
+			if ok, _ := check(fp.Join(InFP, cn), fp.Join(OutFP, cn), ""); ok {
+				log.Info("OK")
+			} else {
+				log.Fatal("ERROR")
+			}
 		}
 	}
 }
 
-func check(in, ans, out string) (bool, string) {
-	_, err := ioutil.ReadFile(in)
-	if err != nil {
-		log.Fatal(err)
-	}
-	a, err := ioutil.ReadFile(ans)
-	if err != nil {
-		log.Fatal(err)
-	}
-	o, err := ioutil.ReadFile(out)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if textDiff(string(a), string(o)) {
-		return true, "AC"
+func check(in, out, ans string) (bool, string) {
+	if Config.Checker == "" {
+		if ans == "" {
+			return true, "AC"
+		}
+		o, err := ioutil.ReadFile(out)
+		if err != nil {
+			log.Fatal(err)
+		}
+		a, err := ioutil.ReadFile(ans)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if textDiff(string(o), string(a)) {
+			return true, "AC"
+		} else {
+			return false, "WA"
+		}
 	} else {
-		return false, "WA"
+		_, e, _, err := Command("checker", Config.Checker, "",
+			map[string]string{
+				"Input":  in,
+				"Output": out,
+				"Answer": ans,
+			})
+		fmt.Print(string(e))
+		if err != nil {
+			return false, err.Error()
+		}
+		return true, "AC"
 	}
 }
 
-func textDiff(inf, ouf string) bool {
-	inl := strings.Fields(inf)
-	oul := strings.Fields(ouf)
-	if len(inl) != len(oul) {
+func textDiff(out, ans string) bool {
+	oul := strings.Fields(out)
+	anl := strings.Fields(ans)
+	if len(oul) != len(anl) {
 		return false
 	}
 	for i, v := range oul {
-		if inl[i] != v {
+		if anl[i] != v {
 			return false
 		}
 	}
@@ -223,7 +267,7 @@ func checkOther() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				if ok, mes := check(fp.Join(InFP, cn), fp.Join(OutFP, cn), fp.Join(path, cn)); ok {
+				if ok, mes := check(fp.Join(InFP, cn), fp.Join(path, cn), fp.Join(OutFP, cn)); ok {
 					log.WithField("Time", int64(du/time.Millisecond)).Infof("AC seed=%d", i)
 				} else {
 					log.WithFields(log.Fields{
@@ -237,6 +281,13 @@ func checkOther() {
 }
 
 func main() {
+	if err := os.RemoveAll(BufFP); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.RemoveAll(ResFP); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := os.MkdirAll(BufFP, 0755); err != nil {
 		log.Fatal(err)
 	}

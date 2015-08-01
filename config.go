@@ -21,6 +21,7 @@ var Config struct {
 	Answer    string   `toml:"answer"`
 	Judge     string   `toml:"judge"`
 	Verify    string   `toml:"verify"`
+	Checker   string   `toml:"checker"`
 	TimeLimit float64  `toml:"timeLimit"`
 	Answers   []Answer `toml:"answers"`
 	Tests     []Test   `toml:"tests"`
