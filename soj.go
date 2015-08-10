@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	log "github.com/Sirupsen/logrus"
+	"github.com/mattn/go-colorable"
 	"hash/fnv"
 	"io/ioutil"
 	"os"
@@ -20,6 +21,8 @@ import (
 var tp = make(map[string]*template.Template)
 
 func init() {
+	log.SetFormatter(&log.TextFormatter{ForceColors: true})
+	log.SetOutput(colorable.NewColorableStdout())
 	for k, c := range compileArg {
 		t, err := template.New("comp").Parse(c)
 		if err != nil {
