@@ -7,11 +7,16 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
 func execCmd(s, fp string) ([]byte, []byte, time.Duration, error) {
-	cmd := exec.Command("bash", "-c", s)
+	sl := strings.Split(s, " ")
+	if len(sl) < 1 {
+		log.Fatal("Too Short")
+	}
+	cmd := exec.Command(sl[0], sl[1:]...)
 	if fp != "" {
 		if _, err := os.Stat(fp); err != nil {
 			log.Fatal(err)
