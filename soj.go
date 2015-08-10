@@ -18,7 +18,7 @@ import (
 )
 
 var compileArg = map[string]string{
-	".cpp": "clang++ -std=c++11 -O2 -Wl,-stack_size,0x10000000 {{.Name}}.cpp -o {{.Name}}",
+	".cpp": "g++ -std=c++11 -O2 -Wl,-stack_size,0x10000000 {{.Name}}.cpp -o {{.Name}}",
 	".d":   "dmd -O {{.Name}}.d",
 	".cs":  "mcs -r:System.Numerics {{.Name}}.cs",
 }
